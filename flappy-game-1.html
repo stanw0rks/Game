@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="tl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flappy Game</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: #0d1b2a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    overflow: hidden;
+  }
+
+  #gameContainer {
+    position: relative;
+    box-shadow: 0 0 40px rgba(0,0,0,0.6);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  canvas {
+    display: block;
+    background: linear-gradient(#4ec0e9 0%, #a9e4f5 70%, #d9f4ff 100%);
+  }
+
+  #overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    text-align: center;
+    background: rgba(0,0,0,0.45);
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.6);
+  }
+
+  #overlay h1 {
+    font-size: 2em;
+    margin: 0 0 10px 0;
+  }
+
+  #overlay p {
+    margin: 4px 0;
+    font-size: 1em;
+  }
+
+  #score {
+    position: absolute;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 2.5em;
+    color: white;
+    font-weight: bold;
+    text-shadow: 3px 3px 5px rgba(0,0,0,0.5);
+    -webkit-text-stroke: 1px #333;
+    user-select: none;
+  }
+
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+
+<div id="gameContainer">
+  <canvas id="game" width="400" height="600"></canvas>
+  <div id="score">0</div>
+  <div id="overlay">
+    <h1 id="overlayTitle">Tap / Click / Space para lumipad</h1>
+    <p id="overlaySub">I-tap ang screen, i-click ang mouse, o pindutin ang Space</p>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   FLAPPY GAME - simple, editable, GitHub-ready
+   ============================================================
+   PAANO PALITAN NG SARILING BIRD IMAGE:
+   1. I-upload ang picture mo (hal. "bird.png") sa parehong
+      folder ng html file na ito kapag ni-push mo sa GitHub.
+   2. Palitan ang value ng BIRD_IMAGE_SRC sa baba ng path ng
+      picture mo, hal: const BIRD_IMAGE_SRC = "bird.png";
+   3. Kung wala kang image, may drawn placeholder bird na
+      awtomatikong gagamitin.
+   ============================================================ */
+
+const BIRD_IMAGE_SRC = ""; // <-- ilagay dito ang filename/path ng picture mo, hal "bird.png"
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const overlay = document.getElementById('overlay');
+const overlayTitle = document.getElementById('overlayTitle');
+const overlaySub = document.getElementById('overlaySub');
+
+const W = canvas.width;
+const H = canvas.height;
+
+// ---- Bird setup ----
+const bird = {
+  x: 90,
+  y: H / 2,
+  size: 34,
+  velocity: 0,
+  rotation: 0
+};
+
+const GRAVITY = 0.45;
+const FLAP_STRENGTH = -8;
+const MAX_FALL_SPEED = 10;
+
+let birdImg = null;
+let birdImgLoaded = false;
+if (BIRD_IMAGE_SRC) {
+  birdImg = new Image();
+  birdImg.onload = () => { birdImgLoaded = true; };
+  birdImg.onerror = () => { birdImgLoaded = false; };
+  birdImg.src = BIRD_IMAGE_SRC;
+}
+
+function drawPlaceholderBird(x, y, size, rotation) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rotation);
+  // body
+  ctx.fillStyle = "#ffcc33";
+  ctx.beginPath();
+  ctx.ellipse(0, 0, size / 2, size / 2.4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // wing
+  ctx.fillStyle = "#f2a900";
+  ctx.beginPath();
+  ctx.ellipse(-4, 4, size / 3.2, size / 5, 0.3, 0, Math.PI * 2);
+  ctx.fill();
+  // eye
+  ctx.fillStyle = "#222";
+  ctx.beginPath();
+  ctx.arc(size / 5, -size / 8, size / 12, 0, Math.PI * 2);
+  ctx.fill();
+  // beak
+  ctx.fillStyle = "#ff7b25";
+  ctx.beginPath();
+  ctx.moveTo(size / 2 - 2, -2);
+  ctx.lineTo(size / 2 + 10, 2);
+  ctx.lineTo(size / 2 - 2, 8);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawBird() {
+  const rotation = Math.max(-0.5, Math.min(bird.velocity / 10, 1.2));
+  if (birdImgLoaded) {
+    ctx.save();
+    ctx.translate(bird.x, bird.y);
+    ctx.rotate(rotation);
+    ctx.drawImage(birdImg, -bird.size / 2, -bird.size / 2, bird.size, bird.size);
+    ctx.restore();
+  } else {
+    drawPlaceholderBird(bird.x, bird.y, bird.size, rotation);
+  }
+}
+
+// ---- Pipes setup ----
+const PIPE_WIDTH = 60;
+const PIPE_GAP = 160;
+const PIPE_SPEED = 2.6;
+const PIPE_SPACING = 220;
+
+let pipes = [];
+
+function spawnPipe() {
+  const minTop = 60;
+  const maxTop = H - PIPE_GAP - 100;
+  const topHeight = Math.random() * (maxTop - minTop) + minTop;
+  pipes.push({
+    x: W + PIPE_WIDTH,
+    top: topHeight,
+    bottom: topHeight + PIPE_GAP,
+    passed: false
+  });
+}
+
+function drawPipes() {
+  ctx.fillStyle = "#3fae4a";
+  ctx.strokeStyle = "#2b7d33";
+  ctx.lineWidth = 3;
+  pipes.forEach(p => {
+    // top pipe
+    ctx.fillRect(p.x, 0, PIPE_WIDTH, p.top);
+    ctx.strokeRect(p.x, 0, PIPE_WIDTH, p.top);
+    ctx.fillRect(p.x - 4, p.top - 20, PIPE_WIDTH + 8, 20);
+    ctx.strokeRect(p.x - 4, p.top - 20, PIPE_WIDTH + 8, 20);
+    // bottom pipe
+    ctx.fillRect(p.x, p.bottom, PIPE_WIDTH, H - p.bottom);
+    ctx.strokeRect(p.x, p.bottom, PIPE_WIDTH, H - p.bottom);
+    ctx.fillRect(p.x - 4, p.bottom, PIPE_WIDTH + 8, 20);
+    ctx.strokeRect(p.x - 4, p.bottom, PIPE_WIDTH + 8, 20);
+  });
+}
+
+// ---- Ground ----
+const GROUND_HEIGHT = 60;
+let groundOffset = 0;
+
+function drawGround() {
+  ctx.fillStyle = "#ded895";
+  ctx.fillRect(0, H - GROUND_HEIGHT, W, GROUND_HEIGHT);
+  ctx.fillStyle = "#c2b96b";
+  const stripeWidth = 40;
+  for (let x = -stripeWidth + (groundOffset % stripeWidth); x < W; x += stripeWidth) {
+    ctx.fillRect(x, H - GROUND_HEIGHT, stripeWidth / 2, 8);
+  }
+}
+
+// ---- Game state ----
+let score = 0;
+let bestScore = Number(localStorage.getItem('flappyBest') || 0);
+let state = "ready"; // ready | playing | gameover
+let frame = 0;
+
+function resetGame() {
+  bird.y = H / 2;
+  bird.velocity = 0;
+  pipes = [];
+  score = 0;
+  frame = 0;
+  scoreEl.textContent = "0";
+}
+
+function hideOverlay() {
+  overlay.style.display = "none";
+}
+
+function showOverlay() {
+  overlay.style.display = "flex";
+}
+
+function flap() {
+  if (state === "ready") {
+    state = "playing";
+    hideOverlay();
+  } else if (state === "playing") {
+    bird.velocity = FLAP_STRENGTH;
+  } else if (state === "gameover") {
+    resetGame();
+    state = "playing";
+    hideOverlay();
+  }
+}
+
+function checkCollision() {
+  if (bird.y + bird.size / 2 >= H - GROUND_HEIGHT) return true;
+  if (bird.y - bird.size / 2 <= 0) return true;
+  for (const p of pipes) {
+    const withinX = bird.x + bird.size / 2 > p.x && bird.x - bird.size / 2 < p.x + PIPE_WIDTH;
+    if (withinX) {
+      if (bird.y - bird.size / 2 < p.top || bird.y + bird.size / 2 > p.bottom) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function endGame() {
+  state = "gameover";
+  if (score > bestScore) {
+    bestScore = score;
+    localStorage.setItem('flappyBest', bestScore);
+  }
+  overlayTitle.textContent = "Game Over! Score: " + score;
+  overlaySub.textContent = "Best: " + bestScore + " — I-tap para maglaro ulit";
+  showOverlay();
+}
+
+function update() {
+  if (state !== "playing") return;
+
+  frame++;
+  bird.velocity += GRAVITY;
+  if (bird.velocity > MAX_FALL_SPEED) bird.velocity = MAX_FALL_SPEED;
+  bird.y += bird.velocity;
+
+  groundOffset -= PIPE_SPEED;
+
+  if (frame % Math.round(PIPE_SPACING / PIPE_SPEED) === 0) {
+    spawnPipe();
+  }
+
+  pipes.forEach(p => {
+    p.x -= PIPE_SPEED;
+    if (!p.passed && p.x + PIPE_WIDTH < bird.x) {
+      p.passed = true;
+      score++;
+      scoreEl.textContent = score;
+    }
+  });
+
+  pipes = pipes.filter(p => p.x + PIPE_WIDTH > -10);
+
+  if (checkCollision()) {
+    endGame();
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  drawPipes();
+  drawGround();
+  drawBird();
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+// ---- Input ----
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Space') {
+    e.preventDefault();
+    flap();
+  }
+});
+const gameContainer = document.getElementById('gameContainer');
+gameContainer.style.touchAction = "manipulation";
+let lastFlapTime = 0;
+gameContainer.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  const now = Date.now();
+  if (now - lastFlapTime < 100) return; // avoid double-trigger
+  lastFlapTime = now;
+  flap();
+});
+
+loop();
+</script>
+</body>
+</html>
